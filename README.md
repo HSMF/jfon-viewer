@@ -1,5 +1,11 @@
 # JFON viewer
 
+## Gallery
+
+
+![full view](./screenshot.png)
+
+
 ## Example Usage, C
 
 In the tracee, add the following lines: (this assumes that you have a function `get_time` that returns the current time).
