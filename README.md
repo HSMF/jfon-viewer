@@ -2,9 +2,19 @@
 
 ## Gallery
 
-
 ![full view](./screenshot.png)
+![web view](./screenshot-web.png)
 
+## Building
+
+Make sure that Rust is installed ([follow this](https://www.rust-lang.org/tools/install)).
+
+```fish
+$ cargo run --release -- [<path/to/.jfon/file>] # run it
+$ cargo install --path . # install it to PATH, this will create a command called jfon-viewer
+# then
+$ jfon-viewer [<path/to/.jfon/file>]
+```
 
 ## Example Usage, C
 
