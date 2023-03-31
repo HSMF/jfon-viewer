@@ -7,3 +7,14 @@ edition = "2021"
 
 [dependencies]
 eframe = "0.21.3"
+log = "0.4.17"
+rfd = "0.11.3"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tracing-subscriber = "0.3"
+futures = "0.3"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1.6"
+tracing-wasm = "0.2"
+wasm-bindgen-futures = "0.4"
