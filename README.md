@@ -1,5 +1,7 @@
 # JFON viewer
 
+A tool to visualize timings. Try it [online](https://n.ethz.ch/~colaux/jfon)
+
 ## Gallery
 
 ![full view](./screenshot.png)
