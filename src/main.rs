@@ -212,7 +212,9 @@ impl eframe::App for Analyzer {
                     self.read();
                 }
                 if ui.button("Open file…").clicked() {
-                    let task = rfd::AsyncFileDialog::new().pick_file();
+                    let task = rfd::AsyncFileDialog::new()
+                        .add_filter("jfon", &["jfon"])
+                        .pick_file();
                     let events = Arc::clone(&self.events);
                     execute(async move {
                         let file = task.await;
@@ -245,32 +247,41 @@ impl eframe::App for Analyzer {
                     });
 
                 ui.with_layout(Layout::right_to_left(eframe::emath::Align::Max), |ui| {
-                    ui.hyperlink_to("github.com/HSMF/jfon-viewer", "https://github.com/HSMF/jfon-viewer")
+                    ui.hyperlink_to(
+                        "github.com/HSMF/jfon-viewer",
+                        "https://github.com/HSMF/jfon-viewer",
+                    )
                 });
             });
 
-            Plot::new("bars")
-                .legend(Legend::default())
-                .data_aspect(10.0)
-                .show(ui, |pui| {
-                    for ev in &self.events.lock().unwrap().events {
-                        if self.view_by.matching(ev) {
-                            let id = ev.id;
-                            let e = BoxElem::new(
-                                id as f64,
-                                BoxSpread::new(
-                                    ev.span.start as f64,
-                                    ev.span.start as f64,
-                                    ev.span.start as f64,
-                                    (ev.span.start + ev.span.duration) as f64,
-                                    (ev.span.start + ev.span.duration) as f64,
-                                ),
-                            )
-                            .box_width(1.0);
-                            pui.box_plot(BoxPlot::new(vec![e]).horizontal().name(format!("{id}")))
+            if self.events.lock().unwrap().events.is_empty() {
+                ui.label("Load some data to get started");
+            } else {
+                Plot::new("bars")
+                    .legend(Legend::default())
+                    .data_aspect(10.0)
+                    .show(ui, |pui| {
+                        for ev in &self.events.lock().unwrap().events {
+                            if self.view_by.matching(ev) {
+                                let id = ev.id;
+                                let e = BoxElem::new(
+                                    id as f64,
+                                    BoxSpread::new(
+                                        ev.span.start as f64,
+                                        ev.span.start as f64,
+                                        ev.span.start as f64,
+                                        (ev.span.start + ev.span.duration) as f64,
+                                        (ev.span.start + ev.span.duration) as f64,
+                                    ),
+                                )
+                                .box_width(1.0);
+                                pui.box_plot(
+                                    BoxPlot::new(vec![e]).horizontal().name(format!("{id}")),
+                                )
+                            }
                         }
-                    }
-                });
+                    });
+            }
         });
     }
 }
