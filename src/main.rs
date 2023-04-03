@@ -2,15 +2,18 @@ use std::future::Future;
 use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
-use eframe::egui::Layout;
+use parking_lot::Mutex;
+
 use eframe::egui::{
     self,
     plot::{BoxElem, BoxPlot, BoxSpread, Legend, Plot},
     ComboBox,
 };
+use eframe::egui::{Layout, RichText};
+use eframe::epaint::Color32;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<(), eframe::Error> {
@@ -21,14 +24,15 @@ fn main() -> Result<(), eframe::Error> {
         // initial_window_size: Some(egui::vec2(320.0, 240.0)),
         ..Default::default()
     };
-    let filename = std::env::args().nth(1).unwrap_or("".to_owned());
     eframe::run_native(
         "JFON viewer",
         options,
         Box::new(|_cc| {
             let mut analyzer = Analyzer::new();
-            analyzer.filename = filename;
-            analyzer.read();
+            if let Some(filename) = std::env::args().nth(1) {
+                analyzer.filename = filename;
+                analyzer.read();
+            }
             Box::new(analyzer)
         }),
     )
@@ -98,38 +102,67 @@ struct Events {
 }
 
 impl Events {
-    fn read(data: &str) -> Option<Self> {
+    fn read(data: &str) -> Result<Self, Error> {
         let mut seqs = HashMap::<_, (Option<u64>, Option<u64>)>::new();
         let mut labels = HashSet::new();
-        for line in data.lines() {
+        for (line_number, line) in data.lines().enumerate() {
+            use FmtErrorKind::*;
             if let Some((label, rest)) = line.split_once(':') {
                 labels.insert(label);
                 let mut parts = rest.split(',');
-                let seqno = parts.next()?.parse::<u32>().ok()?;
+                let seqno = parts
+                    .next()
+                    .ok_or(Error::FormatError {
+                        line_number,
+                        kind: SyntaxError,
+                    })?
+                    .parse::<u32>()
+                    .map_err(|_| Error::FormatError {
+                        line_number,
+                        kind: SyntaxError,
+                    })?;
 
-                let action = parts.next()?;
+                let action = parts.next().ok_or(Error::FormatError {
+                    line_number,
+                    kind: SyntaxError,
+                })?;
 
-                let time = parts.next()?.parse::<u64>().ok()?;
+                let time = parts
+                    .next()
+                    .ok_or(Error::FormatError {
+                        line_number,
+                        kind: SyntaxError,
+                    })?
+                    .parse::<u64>()
+                    .map_err(|_| Error::FormatError {
+                        line_number,
+                        kind: SyntaxError,
+                    })?;
 
                 let entry = seqs.entry((label, seqno)).or_default();
                 match action {
                     "start" => entry.0 = Some(time),
                     "end" => entry.1 = Some(time),
-                    x => panic!("unknown action {x:?}"),
+                    x => {
+                        return Err(Error::FormatError {
+                            line_number,
+                            kind: InvalidAction(x.to_owned()),
+                        })
+                    }
                 }
             }
         }
 
-        let min = seqs
+        let min = *seqs
             .iter()
-            .map(|(&_, &(start, _))| start.unwrap())
+            .filter_map(|(&_, (start, _))| start.as_ref())
             .min()
-            .unwrap_or(0);
+            .unwrap_or(&0);
 
         let mut events: Vec<_> = seqs
             .iter()
-            .map(|(&(label, id), &(start, end))| {
-                let start = start.unwrap();
+            .filter_map(|(key, &(start, end))| start.map(|start| (key, (start, end))))
+            .map(|(&(label, id), (start, end))| {
                 let duration = end.map(|e| e - start).unwrap_or(1000);
                 Event {
                     kind: label.to_string(),
@@ -143,7 +176,7 @@ impl Events {
             .collect();
 
         events.sort_by(|a, b| a.span.start.cmp(&b.span.start));
-        Some(Events {
+        Ok(Events {
             events,
             labels: labels.iter().copied().map(ToOwned::to_owned).collect(),
         })
@@ -155,14 +188,71 @@ struct Analyzer {
     #[cfg(not(target_arch = "wasm32"))]
     filename: String,
     events: Arc<Mutex<Events>>,
+    error: Arc<Mutex<Option<Error>>>,
     view_by: ViewBy,
 }
 
+#[derive(Debug)]
+pub enum FmtErrorKind {
+    InvalidAction(String),
+    SyntaxError,
+}
+
+#[derive(Debug)]
+pub enum Error {
+    IoError(std::io::Error),
+    FormatError {
+        line_number: usize,
+        kind: FmtErrorKind,
+    },
+}
+impl Error {
+    fn show(&self, ui: &mut egui::Ui) {
+        const COLOR: Color32 = Color32::from_rgb(200, 0, 0);
+        match self {
+            Error::IoError(err) => {
+                ui.colored_label(COLOR, format!("{err}"));
+            }
+            Error::FormatError { line_number, kind } => {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Error on Line").color(COLOR));
+                    ui.label(
+                        RichText::new(format!("{line_number}"))
+                            .color(COLOR)
+                            .monospace(),
+                    );
+                    ui.label(RichText::new(":").color(COLOR));
+                    match kind {
+                        FmtErrorKind::InvalidAction(action) => {
+                            ui.label(
+                                RichText::new(format!("invalid action: `{action}`")).color(COLOR),
+                            );
+                        }
+                        FmtErrorKind::SyntaxError => {
+                            ui.label(RichText::new("Syntax Error!").color(COLOR));
+                        }
+                    }
+                });
+            }
+        }
+    }
+}
+
 impl Analyzer {
+    #[cfg(not(target_arch = "wasm32"))]
     fn read(&mut self) {
-        let Ok( c ) = std::fs::read_to_string(&self.filename) else {return;};
-        if let Some(events) = Events::read(&c) {
-            self.events = Arc::new(Mutex::new(events));
+        let c = match std::fs::read_to_string(&self.filename) {
+            Ok(c) => c,
+            Err(e) => {
+                *self.error.lock() = Some(Error::IoError(e));
+                return;
+            }
+        };
+        match Events::read(&c) {
+            Ok(events) => {
+                self.events = Arc::new(Mutex::new(events));
+            }
+            Err(e) => *self.error.lock() = Some(e),
         }
     }
 
@@ -172,6 +262,7 @@ impl Analyzer {
             filename: String::new(),
             events: Arc::new(Mutex::new(Events::default())),
             view_by: ViewBy::Any,
+            error: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -221,6 +312,7 @@ impl eframe::App for Analyzer {
                         .add_filter("jfon", &["jfon"])
                         .pick_file();
                     let events = Arc::clone(&self.events);
+                    let error = Arc::clone(&self.error);
                     execute(async move {
                         let file = task.await;
                         if let Some(file) = file {
@@ -228,9 +320,11 @@ impl eframe::App for Analyzer {
                             log::info!("loading {:?}", file.path());
 
                             let data = file.read().await;
-                            if let Some(e) = Events::read(String::from_utf8(data).unwrap().as_str())
-                            {
-                                *events.lock().unwrap() = e;
+                            match Events::read(String::from_utf8(data).unwrap().as_str()) {
+                                Ok(e) => {
+                                    *events.lock() = e;
+                                }
+                                Err(e) => *error.lock() = Some(e),
                             }
                         }
                     });
@@ -244,7 +338,7 @@ impl eframe::App for Analyzer {
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut self.view_by, ViewBy::Any, "Any");
 
-                        for label in &self.events.lock().unwrap().labels {
+                        for label in &self.events.lock().labels {
                             let val = ViewBy::Label(label.clone());
                             let s = val.to_string();
                             ui.selectable_value(&mut self.view_by, val, s);
@@ -259,14 +353,16 @@ impl eframe::App for Analyzer {
                 });
             });
 
-            if self.events.lock().unwrap().events.is_empty() {
+            if let Some(ref error) = *self.error.lock() {
+                error.show(ui)
+            } else if self.events.lock().events.is_empty() {
                 ui.label("Load some data to get started");
             } else {
                 Plot::new("bars")
                     .legend(Legend::default())
                     .data_aspect(10.0)
                     .show(ui, |pui| {
-                        for ev in &self.events.lock().unwrap().events {
+                        for ev in &self.events.lock().events {
                             if self.view_by.matching(ev) {
                                 let id = ev.id;
                                 let e = BoxElem::new(

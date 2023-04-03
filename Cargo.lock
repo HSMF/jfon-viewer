@@ -119,20 +119,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "analyzer"
-version = "0.1.0"
-dependencies = [
- "console_error_panic_hook",
- "eframe",
- "futures",
- "log",
- "rfd",
- "tracing-subscriber",
- "tracing-wasm",
- "wasm-bindgen-futures",
-]
-
-[[package]]
 name = "android-activity"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1265,6 +1251,21 @@ dependencies = [
  "hermit-abi",
  "libc",
  "windows-sys",
+]
+
+[[package]]
+name = "jfon-viewer"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "eframe",
+ "futures",
+ "log",
+ "parking_lot",
+ "rfd",
+ "tracing-subscriber",
+ "tracing-wasm",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
