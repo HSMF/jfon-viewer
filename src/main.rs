@@ -152,6 +152,7 @@ impl Events {
 
 #[derive(Debug)]
 struct Analyzer {
+    #[cfg(not(target_arch = "wasm32"))]
     filename: String,
     events: Arc<Mutex<Events>>,
     view_by: ViewBy,
@@ -167,6 +168,7 @@ impl Analyzer {
 
     fn new() -> Self {
         Self {
+            #[cfg(not(target_arch = "wasm32"))]
             filename: String::new(),
             events: Arc::new(Mutex::new(Events::default())),
             view_by: ViewBy::Any,
@@ -208,8 +210,11 @@ impl eframe::App for Analyzer {
             });
 
             ui.horizontal(|ui| {
-                if ui.button("reload").clicked() {
-                    self.read();
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    if ui.button("reload").clicked() {
+                        self.read();
+                    }
                 }
                 if ui.button("Open file…").clicked() {
                     let task = rfd::AsyncFileDialog::new()
